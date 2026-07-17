@@ -9,12 +9,54 @@
 [![Build](https://github.com/mkasperczyk90/RuleCraft/actions/workflows/ci.yml/badge.svg)](https://github.com/mkasperczyk90/RuleCraft/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/mkasperczyk90/RuleCraft/blob/main/LICENSE)
 
-A .NET library where **business rules are written in natural language, implemented by an LLM,
-verified automatically, approved by a human, and hot-loaded into the running application** —
-no redeploy.
+**You define an interface. RuleCraft has an LLM implement it** — from a plain-language spec, at
+runtime — verifies the result, waits for a human to approve it, and hot-loads it into the running
+application. No redeploy.
 
-The application developer defines a contract interface (e.g. `IDiscountRule`) and a context
-type (e.g. `Order`). Users describe rules in plain language. RuleCraft:
+It exists for the logic that changes faster than you want to ship: discounts, eligibility, limits,
+routing. The people who know what a rule should say are usually not the people who can deploy it —
+RuleCraft closes that gap without giving up a developer-grade safety net.
+
+Concretely: your code owns the contract and the data it decides on, as ordinary types —
+
+```csharp
+public interface IDiscountRule { decimal GetDiscount(Order order); }
+public sealed record Order(decimal Total, string CustomerType);
+```
+
+— and, given an engine for that pair (constructed once at startup, see
+[Wiring rules into your code](#wiring-rules-into-your-code)), a rule starts as a sentence:
+
+```csharp
+var rule = await engine.AddRuleAsync("VIP customers get 15% off orders of 200 or more");
+
+// By now an LLM has written a C# class implementing IDiscountRule, and RuleCraft has compiled it
+// in memory, run a security analyzer over it and executed its tests. It is NOT live yet:
+engine.Approve(rule.Id, approvedBy: "you@corp.com");   // a human decides what runs
+
+// From here the rule is part of the running process — no build, no restart:
+var order = new Order(250m, "vip");
+decimal discount = engine.Resolve(order)!.GetDiscount(order);   // 0.15m
+```
+
+(This snippet is [kept executable as a test](https://github.com/mkasperczyk90/RuleCraft/blob/main/tests/RuleCraft.Tests/ReadmeIntroTests.cs),
+so it works.)
+
+The implementation the LLM writes takes one of two forms, chosen per rule:
+
+- **A JSON rule** — a document in a deliberately tiny rule language that RuleCraft *interprets*,
+  never compiles. It can test fields of your context and fill in an action type you define, and
+  nothing else — the grammar has no words for I/O, loops or reflection. A real sandbox; it covers
+  most business rules, and it is the form to prefer.
+- **A compiled C# class** — full expressive power for the rules JSON cannot say, behind a heavier
+  gate: a whitelisted reference set, a security analyzer, generated tests, your acceptance tests,
+  and the same human approval.
+
+The LLM is optional: hand-written JSON or C# enters the same verification and approval loop
+(`AddJsonRuleFromSource` / `AddRuleFromSource`), and an engine only ever fed rules you wrote
+needs no LLM at all.
+
+Under the hood, when a spec arrives, RuleCraft:
 
 1. asks an LLM to generate a C# class implementing the contract, a predicate
    (`AppliesTo(context)` — "does this rule apply?") and self-tests,
@@ -26,6 +68,8 @@ type (e.g. `Order`). Users describe rules in plain language. RuleCraft:
 6. after a human approves it (via your own HTTP endpoint), loads it into a **collectible
    `AssemblyLoadContext`** in the live process,
 7. at runtime, dispatches calls to the highest-priority rule whose predicate matches.
+
+A JSON rule walks the same path, with parsing where compilation and analysis sit.
 
 The whole library is a single assembly: `RuleCraft.dll`.
 
@@ -484,7 +528,7 @@ could equally well deploy code to the box.
 src/RuleCraft/            the library (single DLL): engine, JSON-DSL parser/interpreter,
                           Roslyn compiler, ALC loading, security analyzer, test harness,
                           store, LLM generation
-tests/RuleCraft.Tests/    xunit suite (146 tests, no network needed)
+tests/RuleCraft.Tests/    xunit suite (147 tests, no network needed)
 samples/RuleCraft.Sample/ ASP.NET Core minimal API demo + review console
 ```
 
