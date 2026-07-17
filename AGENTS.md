@@ -13,7 +13,7 @@ the load-context handling are the design — not incidental plumbing.
 
 ```
 src/RuleCraft/            the library, shipped as a single DLL
-tests/RuleCraft.Tests/    xunit suite (146 tests, no network, no API key)
+tests/RuleCraft.Tests/    xunit suite (151 tests, no network, no API key)
 samples/RuleCraft.Sample/ ASP.NET Core minimal API + review console
 ```
 
