@@ -1,0 +1,30 @@
+# Normalize every text file to LF in the repository; check out native line endings.
+# The CI matrix is ubuntu + windows, so the alternative is the two runners disagreeing
+# about files nobody edited.
+* text=auto
+
+# Spelled out rather than left to content detection, so a file that starts out short or
+# unusual is not guessed at.
+*.cs        text diff=csharp
+*.csproj    text
+*.props     text
+*.slnx      text
+*.json      text
+*.md        text
+*.html      text
+*.yml       text
+*.yaml      text
+*.editorconfig text
+LICENSE     text
+
+# No binaries in the repo today. These are here so the first one added is not corrupted
+# by normalization before anyone notices.
+*.png       binary
+*.jpg       binary
+*.ico       binary
+*.gif       binary
+*.snk       binary
+*.dll       binary
+*.exe       binary
+*.nupkg     binary
+*.snupkg    binary

@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <UserSecretsId>2989afea-6cd3-45bf-a344-556894ade977</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\RuleCraft\RuleCraft.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Anthropic" Version="12.36.0" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.8.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      rules/ is the engine's store: runtime data, not source. Its .cs files are compiled by
+      Roslyn at runtime into their own load contexts — the project must not compile them too,
+      or a stored rule would end up in this assembly and a bad one would break the build.
+    -->
+    <Compile Remove="rules/**" />
+    <None Include="rules/**" />
+  </ItemGroup>
+
+</Project>

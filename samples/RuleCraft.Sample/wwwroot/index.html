@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RuleCraft console</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1e222b;
+    --line: #2b303b;
+    --text: #e6e8ee;
+    --muted: #98a0b3;
+    --accent: #7aa2f7;
+    --ok: #7fd88f;
+    --warn: #f0b866;
+    --bad: #f07d7d;
+    --mono: ui-monospace, "Cascadia Code", "Consolas", monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f7f9; --panel: #fff; --panel-2: #f0f2f6; --line: #dfe3ea;
+      --text: #1a1d24; --muted: #626b7d; --accent: #2f5fd0;
+      --ok: #1f8a3b; --warn: #9a6a10; --bad: #c0392b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2rem 1.25rem 4rem;
+    background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1rem; margin: 0 0 .75rem; letter-spacing: .02em; }
+  .sub { color: var(--muted); margin: 0 0 1.5rem; font-size: .9rem; }
+  section {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 1.1rem; margin-bottom: 1.1rem;
+  }
+  label { display: block; font-size: .82rem; color: var(--muted); margin-bottom: .3rem; }
+  textarea, input, select {
+    width: 100%; padding: .55rem .65rem; border-radius: 7px;
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+    font-family: inherit; font-size: .9rem;
+  }
+  textarea { resize: vertical; min-height: 76px; }
+  textarea.code { font-family: var(--mono); font-size: .82rem; min-height: 200px; }
+  button {
+    padding: .5rem .9rem; border-radius: 7px; border: 1px solid var(--line);
+    background: var(--panel-2); color: var(--text); cursor: pointer; font-size: .88rem;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.ok { color: var(--ok); }
+  button.bad { color: var(--bad); }
+  .row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: end; }
+  .row > div { flex: 1; min-width: 120px; }
+  .actions { margin-top: .75rem; display: flex; gap: .5rem; flex-wrap: wrap; }
+  .tabs { display: flex; gap: .4rem; margin-bottom: .9rem; }
+  .tabs button[aria-selected="true"] { border-color: var(--accent); color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+  th, td { text-align: left; padding: .5rem .4rem; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: .78rem; text-transform: uppercase; }
+  td.num { font-family: var(--mono); color: var(--muted); width: 2.5rem; }
+  .tag {
+    display: inline-block; padding: .1rem .45rem; border-radius: 4px;
+    font-size: .74rem; border: 1px solid var(--line); background: var(--panel-2);
+  }
+  .tag.static { color: var(--accent); }
+  .tag.json { color: var(--ok); }
+  .tag.approved { color: var(--ok); }
+  .tag.pending { color: var(--warn); }
+  .tag.bad { color: var(--bad); }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: .9rem; margin-bottom: .75rem; }
+  .card h3 { margin: 0 0 .2rem; font-size: .95rem; }
+  .spec { color: var(--muted); font-size: .86rem; margin: .1rem 0 .6rem; }
+  details summary { cursor: pointer; color: var(--muted); font-size: .84rem; }
+  pre {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
+    padding: .7rem; overflow-x: auto; font-family: var(--mono); font-size: .78rem; margin: .5rem 0 0;
+  }
+  .checks { font-size: .84rem; margin: .5rem 0 0; }
+  .checks div { color: var(--ok); }
+  .checks div.fail { color: var(--bad); }
+  .empty { color: var(--muted); font-size: .87rem; padding: .4rem 0; }
+  #toast {
+    position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: .6rem 1rem; font-size: .87rem; max-width: 90vw; display: none;
+  }
+  #toast.bad { border-color: var(--bad); color: var(--bad); }
+  #result { font-family: var(--mono); font-size: .85rem; margin-top: .7rem; color: var(--muted); }
+  #result b { color: var(--ok); font-size: 1rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>RuleCraft console</h1>
+  <p class="sub">Describe a discount rule, let the LLM implement it, review the generated code, approve it — it goes live in this running process.</p>
+
+  <section>
+    <h2>Add a rule</h2>
+    <div class="tabs">
+      <button id="tab-spec" aria-selected="true" onclick="tab('spec')">From a spec (LLM)</button>
+      <button id="tab-json" aria-selected="false" onclick="tab('json')">From JSON</button>
+      <button id="tab-source" aria-selected="false" onclick="tab('source')">From C# source</button>
+    </div>
+
+    <div id="pane-spec">
+      <label for="spec">Rule in plain language</label>
+      <textarea id="spec" placeholder="VIP customers with orders of 500 or more get 15% off"></textarea>
+      <div class="row" style="margin-top:.6rem">
+        <div style="flex:0 0 auto">
+          <label for="format">Generate as</label>
+          <select id="format">
+            <option value="json">JSON rule (sandboxed)</option>
+            <option value="csharp">C# code (escalation)</option>
+          </select>
+        </div>
+        <div style="flex:0 0 auto">
+          <label>&nbsp;</label>
+          <button class="primary" id="generate" onclick="generate()">Generate &amp; validate</button>
+        </div>
+        <div><label>&nbsp;</label><span id="llm-hint" class="empty"></span></div>
+      </div>
+    </div>
+
+    <div id="pane-json" hidden>
+      <label for="json">Rule document — conditions over Order fields, outcome, and test cases</label>
+      <textarea id="json" class="code" spellcheck="false"></textarea>
+      <div class="actions">
+        <button class="primary" onclick="fromJson()">Validate &amp; queue</button>
+        <button onclick="fillJsonExample()">Insert example</button>
+      </div>
+    </div>
+
+    <div id="pane-source" hidden>
+      <label for="source">Rule source — implements IRule&lt;IDiscountRule, Order&gt; plus IRuleTest tests</label>
+      <textarea id="source" class="code" spellcheck="false"></textarea>
+      <div class="actions">
+        <button class="primary" onclick="fromSource()">Validate &amp; queue</button>
+        <button onclick="fillExample()">Insert example</button>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Awaiting approval</h2>
+    <div id="pending"></div>
+  </section>
+
+  <section>
+    <h2>Rules &amp; evaluation order</h2>
+    <table>
+      <thead><tr><th>#</th><th>Name</th><th>Origin</th><th>Priority</th><th>Status</th><th></th></tr></thead>
+      <tbody id="rules"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Try an order</h2>
+    <div class="row">
+      <div><label for="total">Total</label><input id="total" type="number" value="600" step="10"></div>
+      <div><label for="customerType">Customer</label>
+        <select id="customerType"><option>vip</option><option>regular</option><option>new</option></select>
+      </div>
+      <div><label for="itemCount">Items</label><input id="itemCount" type="number" value="2"></div>
+      <div><label for="country">Country</label><input id="country" value="PL"></div>
+      <div style="flex:0"><button class="primary" onclick="evaluate()">Evaluate</button></div>
+    </div>
+    <div id="result"></div>
+  </section>
+</main>
+
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+function toast(message, bad = false) {
+  const el = $('toast');
+  el.textContent = message;
+  el.className = bad ? 'bad' : '';
+  el.style.display = 'block';
+  clearTimeout(el.timer);
+  el.timer = setTimeout(() => el.style.display = 'none', bad ? 8000 : 3500);
+}
+
+async function api(path, options) {
+  const response = await fetch(path, options);
+  const text = await response.text();
+  const body = text ? JSON.parse(text) : null;
+  if (!response.ok) throw new Error(describe(body) || response.statusText);
+  return body;
+}
+
+// The engine returns rich failure payloads; surface the useful part, not just a status code.
+function describe(body) {
+  if (!body) return null;
+  const report = body.report ?? body.attempts?.[body.attempts.length - 1]?.report;
+  if (report) {
+    const problems = [
+      ...(report.diagnostics ?? []),
+      ...(report.securityFindings ?? []).map(f => `line ${f.line}: ${f.message}`),
+      ...(report.testResults ?? []).filter(t => t.outcome === 'Failed').map(t => `${t.name}: ${t.message}`),
+    ];
+    if (problems.length) return problems.slice(0, 3).join(' | ');
+  }
+  return body.detail ?? body.error ?? body.title ?? null;
+}
+
+const json = payload => ({
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify(payload),
+});
+
+const PANES = ['spec', 'json', 'source'];
+
+function tab(which) {
+  for (const pane of PANES) {
+    $(`pane-${pane}`).hidden = pane !== which;
+    $(`tab-${pane}`).ariaSelected = pane === which;
+  }
+}
+
+async function generate() {
+  const spec = $('spec').value.trim();
+  if (!spec) return toast('Describe the rule first.', true);
+  const button = $('generate');
+  button.disabled = true;
+  button.textContent = 'Generating…';
+  try {
+    const info = await api('/rules', json({ spec, format: $('format').value }));
+    $('spec').value = '';
+    toast(`Generated and validated — ${info.name} (${info.origin}) is waiting for approval.`);
+    await refresh();
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Generate & validate';
+  }
+}
+
+async function submitRule(endpoint, fieldId, what) {
+  const source = $(fieldId).value.trim();
+  if (!source) return toast(`Paste the ${what} first.`, true);
+  try {
+    const info = await api(endpoint, json({ source }));
+    toast(`Validated — ${info.name} is waiting for approval.`);
+    await refresh();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+const fromJson = () => submitRule('/rules/from-json', 'json', 'rule document');
+const fromSource = () => submitRule('/rules/from-source', 'source', 'rule source');
+
+async function approve(id) {
+  const approvedBy = prompt('Approve as:', 'reviewer@example.com');
+  if (!approvedBy) return;
+  try {
+    await api(`/rules/${id}/approve`, json({ approvedBy }));
+    toast('Approved and loaded into the running app.');
+    await refresh();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function reject(id) {
+  const reason = prompt('Reject because:', 'not the logic we want');
+  if (!reason) return;
+  try {
+    await api(`/rules/${id}/reject`, json({ reason }));
+    toast('Rejected — kept on disk for audit.');
+    await refresh();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function remove(id) {
+  try {
+    await api(`/rules/${id}`, { method: 'DELETE' });
+    toast('Rule unloaded.');
+    await refresh();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function evaluate() {
+  try {
+    const result = await api('/orders/evaluate', json({
+      total: Number($('total').value),
+      customerType: $('customerType').value,
+      itemCount: Number($('itemCount').value),
+      country: $('country').value,
+    }));
+    const percent = (result.discount * 100).toFixed(1);
+    $('result').innerHTML = result.matchedByRule
+      ? `<b>${percent}% off</b> → pays ${result.finalTotal} (matched by a rule)`
+      : `<b>no discount</b> → pays ${result.finalTotal} (fallback: no rule matched)`;
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+const escapeHtml = text => String(text ?? '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+
+function renderPending(rules) {
+  if (!rules.length) {
+    $('pending').innerHTML = '<div class="empty">Nothing waiting. Generated rules land here before they can go live.</div>';
+    return;
+  }
+  $('pending').innerHTML = rules.map(rule => {
+    const tests = (rule.report?.testResults ?? []).map(test =>
+      `<div class="${test.outcome === 'Failed' ? 'fail' : ''}">${test.outcome === 'Failed' ? '✗' : '✓'} ${escapeHtml(test.name)}${test.message ? ' — ' + escapeHtml(test.message) : ''}</div>`).join('');
+    const findings = rule.report?.securityFindings?.length ?? 0;
+    // A JSON rule is interpreted: it cannot express unsafe code, so there is nothing to analyse.
+    const security = rule.origin === 'Json'
+      ? '<div>✓ interpreted JSON — no code to analyse</div>'
+      : `<div class="${findings ? 'fail' : ''}">${findings ? '✗' : '✓'} security analyzer: ${findings} finding(s)</div>`;
+    return `
+      <div class="card">
+        <h3>${escapeHtml(rule.name)} <span class="tag ${rule.origin === 'Json' ? 'json' : ''}">${rule.origin}</span></h3>
+        <p class="spec">${rule.spec ? escapeHtml(rule.spec) : '<em>submitted directly</em>'}</p>
+        <div class="checks">
+          ${security}
+          ${tests}
+        </div>
+        <details><summary>${rule.origin === 'Json' ? 'Rule document' : 'Generated source'}</summary><pre>${escapeHtml(rule.source)}</pre></details>
+        <div class="actions">
+          <button class="ok" onclick="approve('${rule.id}')">Approve &amp; load</button>
+          <button class="bad" onclick="reject('${rule.id}')">Reject</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function statusClass(status) {
+  if (status === 'Approved') return 'approved';
+  if (status === 'PendingApproval') return 'pending';
+  return 'bad';
+}
+
+function renderRules(rules) {
+  if (!rules.length) {
+    $('rules').innerHTML = '<tr><td colspan="6" class="empty">No rules yet.</td></tr>';
+    return;
+  }
+  $('rules').innerHTML = rules.map(rule => `
+    <tr>
+      <td class="num">${rule.evaluationOrder ?? '–'}</td>
+      <td>${escapeHtml(rule.name)}</td>
+      <td><span class="tag ${rule.origin === 'Static' ? 'static' : rule.origin === 'Json' ? 'json' : ''}">${rule.origin}</span></td>
+      <td class="num">${rule.priority}</td>
+      <td><span class="tag ${statusClass(rule.status)}">${rule.status}</span></td>
+      <td>${rule.isLoaded ? `<button onclick="remove('${rule.id}')">Unload</button>` : ''}</td>
+    </tr>`).join('');
+}
+
+function fillJsonExample() {
+  $('json').value = `{
+  "name": "vip-big-orders",
+  "priority": 3,
+  "when": {
+    "all": [
+      { "field": "CustomerType", "op": "eq",  "value": "vip" },
+      { "field": "Total",        "op": "gte", "value": 500 }
+    ]
+  },
+  "then": { "discount": 0.15 },
+  "tests": [
+    { "name": "vip 600 applies",
+      "context": { "total": 600, "customerType": "vip", "itemCount": 2, "country": "PL" },
+      "applies": true },
+    { "name": "regular customer does not",
+      "context": { "total": 600, "customerType": "regular", "itemCount": 2, "country": "PL" },
+      "applies": false }
+  ]
+}`;
+}
+
+function fillExample() {
+  $('source').value = `using System;
+using RuleCraft;
+using RuleCraft.Sample;
+
+namespace RuleCraft.Generated.Handwritten;
+
+public sealed class WeekendRule : IRule<IDiscountRule, Order>, IDiscountRule
+{
+    public bool AppliesTo(Order context) => context.Country == "PL" && context.Total >= 200m;
+    public IDiscountRule Implementation => this;
+    public int Priority => 2;
+    public decimal GetDiscount(Order order) => 0.08m;
+}
+
+public sealed class MatchTest : IRuleTest
+{
+    public string Name => "PL orders of 200+ match";
+    public TestResult Run(TestContext context)
+    {
+        var rule = new WeekendRule();
+        RuleAssert.True(rule.AppliesTo(new Order(300m, "regular", 1, "PL")));
+        RuleAssert.False(rule.AppliesTo(new Order(300m, "regular", 1, "DE")));
+        return TestResult.Passed();
+    }
+}
+
+public sealed class DiscountTest : IRuleTest
+{
+    public string Name => "discount is 8%";
+    public TestResult Run(TestContext context)
+    {
+        RuleAssert.Equal(0.08m, new WeekendRule().GetDiscount(new Order(300m, "regular", 1, "PL")));
+        return TestResult.Passed();
+    }
+}`;
+}
+
+async function refresh() {
+  const [rules, pending] = await Promise.all([api('/rules'), api('/rules/pending')]);
+  renderRules(rules);
+  renderPending(pending);
+}
+
+(async () => {
+  const status = await api('/status');
+  if (!status.llmConfigured) {
+    $('generate').disabled = true;
+    $('llm-hint').textContent = 'No API key — the JSON and C# tabs still work.';
+  }
+  await refresh();
+  await evaluate();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+artifacts/
+*.nupkg
+*.snupkg
+
+# Test output
+[Tt]est[Rr]esults/
+coverage*.json
+coverage*.xml
+coverage*.info
+*.coverage
+*.trx
+
+# The engine's rule store: runtime data, not source. The sample writes generated .cs and
+# .rule.json here at runtime; committing them would put LLM output under review as if a
+# human wrote it, and skew the repo's language stats.
+/samples/RuleCraft.Sample/rules/
+
+# Secrets. The API key goes through dotnet user-secrets or ANTHROPIC_API_KEY, both outside
+# the repo — these catch the local override files that would not be.
+*.local.json
+.env
+
+# IDEs
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.userprefs
+*.DotSettings.user
+
+# Tooling / agents
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
