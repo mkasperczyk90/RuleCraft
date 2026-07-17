@@ -1,14 +1,13 @@
 # RuleCraft
 
-<!-- TODO — needs a git remote / a published package; fill in and uncomment:
-     Build:  [![Build](https://github.com/<owner>/<repo>/actions/workflows/ci.yml/badge.svg)](https://github.com/<owner>/<repo>/actions/workflows/ci.yml)
-     NuGet:  [![NuGet](https://img.shields.io/nuget/v/RuleCraft.svg)](https://www.nuget.org/packages/RuleCraft)
+<!-- The NuGet badge stays commented until 1.0.0 is actually published — until then it renders as
+     "invalid", which looks worse than no badge at all. Uncomment it with the first release:
+     [![NuGet](https://img.shields.io/nuget/v/RuleCraft.svg)](https://www.nuget.org/packages/RuleCraft)
 
-     Also: this file is the package page on nuget.org, and nuget.org does NOT resolve relative
-     links. Rewrite the three of them — the LICENSE badge target below, the quickstart's link to
-     QuickstartTests.cs, and the sample link — to absolute https://github.com/<owner>/<repo>/... URLs
-     at the same time. They work on GitHub today and are dead ends on nuget.org. -->
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+     Every link in this file is absolute on purpose: it is also the package page on nuget.org, which
+     does not resolve relative links. Keep it that way when adding one. -->
+[![Build](https://github.com/mkasperczyk90/RuleCraft/actions/workflows/ci.yml/badge.svg)](https://github.com/mkasperczyk90/RuleCraft/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/mkasperczyk90/RuleCraft/blob/main/LICENSE)
 
 A .NET library where **business rules are written in natural language, implemented by an LLM,
 verified automatically, approved by a human, and hot-loaded into the running application** —
@@ -66,7 +65,8 @@ dotnet add package RuleCraft
 ## Quickstart
 
 Hand-written rule, no LLM, no container — the shortest path from nothing to a rule dispatching.
-(This snippet is [kept executable as a test](tests/RuleCraft.Tests/QuickstartTests.cs), so it works.)
+(This snippet is [kept executable as a test](https://github.com/mkasperczyk90/RuleCraft/blob/main/tests/RuleCraft.Tests/QuickstartTests.cs),
+so it works.)
 
 ```csharp
 // Your contract, and the context its rules decide on. Ordinary types: no base class, no attributes.
@@ -356,6 +356,10 @@ Rules that are not loaded (pending, rejected, quarantined, disabled) have
   to disk, alongside `rules/<id>.meta.json` with the spec, status, priority, SHA-256 of the source,
   the contract and context types it was written against and their fingerprint, model id, approver
   and the full validation report. Source is the single source of truth.
+- **That folder is runtime data, not source.** If it sits inside a project directory, exclude it
+  from compilation (`<Compile Remove="rules/**" />`): its `.cs` files are meant for Roslyn at
+  runtime, and a project that compiles them too would bake a stored rule into your own assembly —
+  where a bad one breaks your build instead of being quarantined.
 - **The compiled assembly is never written to disk.** Roslyn emits to a `MemoryStream` and it
   is loaded via `LoadFromStream` into a collectible `AssemblyLoadContext` — nothing to lock,
   nothing to clean up, and a rule is gone from the process once unloaded.
@@ -366,70 +370,21 @@ Rules that are not loaded (pending, rejected, quarantined, disabled) have
 
 ## Sample app
 
-<!-- TODO: link to the sample in the repo once it has a git remote — this section is dead weight
-     for anyone reading on nuget.org without the sources. -->
-
-`samples/RuleCraft.Sample` is an ASP.NET Core minimal API demonstrating the full loop, with a
-small review console at `http://localhost:5199/` (`wwwroot/index.html`): write a spec (as a JSON
-rule or as C#), watch the candidate appear in the approval queue with its document, report and
-test results, approve it, and see the discount change on the next order — without restarting the
-process.
-
-| Endpoint | Purpose |
-|---|---|
-| `POST /rules` `{spec, name?, format?}` | generate a rule from natural language — `format` is `json` (default) or `csharp`; needs `ANTHROPIC_API_KEY` |
-| `POST /rules/from-json` `{source, name?}` | submit a hand-written JSON rule document (no LLM needed) |
-| `POST /rules/from-source` `{source, name?}` | submit hand-written C# rule source (no LLM needed) |
-| `GET /rules` | all rules — JSON, compiled and static — with status and evaluation order |
-| `GET /rules/pending` | review queue: document/source, report, test results |
-| `POST /rules/{id}/approve` `{approvedBy}` | load the rule into the running app |
-| `POST /rules/{id}/reject` `{reason}` | reject; kept on disk for audit |
-| `DELETE /rules/{id}` | unregister + unload (reversible — see below) |
-| `POST /rules/{id}/enable` `{approvedBy}` | revalidate and reload a disabled or quarantined rule |
-| `POST /orders/evaluate` | run an order through the currently loaded rules |
+[`samples/RuleCraft.Sample`](https://github.com/mkasperczyk90/RuleCraft/tree/main/samples/RuleCraft.Sample)
+is an ASP.NET Core minimal API demonstrating the full loop, with a small review console: write a
+spec (as a JSON rule or as C#), watch the candidate appear in the approval queue with its document,
+report and test results, approve it, and see the discount change on the next order — without
+restarting the process. It seeds one rule of each kind at startup, so it runs on a fresh clone with
+no API key; a key is only needed to generate a rule from a spec.
 
 ```bash
-cd samples/RuleCraft.Sample
+git clone https://github.com/mkasperczyk90/RuleCraft.git
+cd RuleCraft/samples/RuleCraft.Sample
 dotnet run                          # then open http://localhost:5199/
 ```
 
-**It works on first run with no key.** `SeedRules` adds one rule of each kind at startup — a JSON
-rule, a compiled C# rule, and the static `BulkOrderRule` — so `GET /rules` shows all three
-competing by priority before you type anything. Seeding is skipped once a rule exists, so
-rejecting or unloading one in the console sticks.
-
-### Adding the API key (only needed to generate rules from a spec)
-
-Get a key at **[console.anthropic.com](https://console.anthropic.com)** → Settings → API Keys —
-that's the developer platform, a separate paid product from a Claude.ai subscription. Then either:
-
-```bash
-dotnet user-secrets set "Anthropic:ApiKey" "sk-ant-..."   # stays out of the repo — preferred
-set ANTHROPIC_API_KEY=sk-ant-...                          # or the environment variable
-```
-
-The model defaults to `claude-opus-4-8` (Claude Opus 4.8); override with `RuleCraft:Model`.
-
-### Layout
-
-```
-Program.cs                        startup: key → engine → seed → endpoints
-Discounts/  IDiscountRule.cs      the contract + the Order context
-            DiscountAction.cs     the `then` vocabulary JSON rules may use, and its factory
-            BulkOrderRule.cs      a static rule written in this repo
-            DiscountRangeInvariant.cs  the acceptance test enforced on every candidate
-            SeedRules.cs          the rules seeded on first run
-Api/        RuleEndpoints.cs      propose → review → approve
-            OrderEndpoints.cs     where rules are actually used
-            RuleCraftProblems.cs  RuleCraft exceptions → HTTP responses
-wwwroot/index.html                the review console
-```
-
-Rules persist under `rules/`: `<id>.meta.json` (audit metadata) plus `<id>.rule.json` or `<id>.cs`
-(the source). That folder is **runtime data, not source** — the csproj excludes it from
-compilation, since its `.cs` files are meant for Roslyn at runtime, not for the app's own build.
-Rules are reparsed/recompiled and re-loaded on restart; one that no longer validates after a
-contract change is **quarantined**, not fatal.
+Its endpoints, configuration and layout are documented in the
+[sample's own README](https://github.com/mkasperczyk90/RuleCraft/blob/main/samples/RuleCraft.Sample/README.md).
 
 ## How the risky parts are handled
 
@@ -535,4 +490,4 @@ samples/RuleCraft.Sample/ ASP.NET Core minimal API demo + review console
 
 ## License
 
-[MIT](LICENSE) — © 2026 mkasperczyk90@gmail.com
+[MIT](https://github.com/mkasperczyk90/RuleCraft/blob/main/LICENSE) — © 2026 mkasperczyk90@gmail.com

@@ -1,0 +1,45 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      # Never cancel one leg because the other failed. The matrix exists to answer "is this
+      # platform-specific?", and fail-fast would throw away exactly that answer.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Honours the SDK pin in global.json, so a runner builds with the same SDK as a desk.
+      # If the test project ever multi-targets net8.0, add `dotnet-version: 8.0.x` here: with
+      # both inputs set, setup-dotnet installs both and global.json still picks the SDK.
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore RuleCraft.slnx
+
+      # The whole solution, so a break in the sample is a build failure and not a surprise later.
+      - name: Build
+        run: dotnet build RuleCraft.slnx --configuration Release --no-restore
+
+      # ubuntu-latest is not box-ticking: this suite has only ever run on Windows, and the store
+      # is full of Path, File.Move(overwrite) and case-sensitivity assumptions that Linux tests
+      # for the first time here.
+      - name: Test
+        run: dotnet test tests/RuleCraft.Tests/RuleCraft.Tests.csproj --configuration Release --no-build

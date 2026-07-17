@@ -5,8 +5,6 @@
     <RootNamespace>RuleCraft</RootNamespace>
   </PropertyGroup>
 
-  <!-- TODO once this lives in a git remote: RepositoryUrl, PublishRepositoryUrl and
-       Microsoft.SourceLink.GitHub, so consumers can step into the source. -->
   <PropertyGroup>
     <PackageId>RuleCraft</PackageId>
     <Version>1.0.0</Version>
@@ -16,8 +14,20 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <PackageProjectUrl>https://github.com/mkasperczyk90/RuleCraft</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/mkasperczyk90/RuleCraft</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <!-- Source stepping. SourceLink needs no PackageReference: the .NET SDK has shipped it in-box
+       since 8.0 and wires up the GitHub host from the origin remote. PublishRepositoryUrl puts the
+       commit hash in the nuspec, so a symbol from this package resolves to the exact source that
+       built it. Release builds in CI must also set ContinuousIntegrationBuild=true. -->
+  <PropertyGroup>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
   </PropertyGroup>
 
   <PropertyGroup>

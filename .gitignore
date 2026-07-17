@@ -35,6 +35,9 @@ coverage*.info
 # Tooling / agents
 .claude/settings.local.json
 
+# Working notes, deliberately out of the repo.
+todo.md
+
 # OS
 .DS_Store
 Thumbs.db

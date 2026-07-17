@@ -1,0 +1,69 @@
+name: Release
+
+# Publishing to nuget.org cannot be undone — a version can be unlisted, never replaced.
+# Hence: a tag, a reviewed environment, and a test run before anything is pushed.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Add required reviewers to the `release` environment in repo settings, so cutting a tag
+    # proposes a publish rather than performing one.
+    environment: release
+    permissions:
+      contents: read
+      # Lets the job mint the short-lived OIDC token that trusted publishing trades for a
+      # temporary nuget.org API key. Nothing else needs it.
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Version from the tag
+        # <Version> is hard-coded to 1.0.0 in the csproj. Without this, the second tag would
+        # push 1.0.0 again and nuget.org would reject it as a duplicate. v1.2.3 -> 1.2.3.
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Test
+        run: dotnet test RuleCraft.slnx --configuration Release
+
+      - name: Pack
+        # ContinuousIntegrationBuild makes the build deterministic and gives SourceLink the
+        # normalized paths it needs for symbols to resolve to the source of this commit.
+        run: >
+          dotnet pack src/RuleCraft/RuleCraft.csproj
+          --configuration Release
+          --output artifacts
+          -p:Version=${{ env.VERSION }}
+          -p:ContinuousIntegrationBuild=true
+
+      # Trusted publishing: no long-lived secret, just a token good for one key for one hour.
+      # Requires a policy at nuget.org -> your username -> Trusted Publishing, with:
+      #   Repository Owner: mkasperczyk90 | Repository: RuleCraft
+      #   Workflow File: release.yml (file name only) | Environment: release
+      # NUGET_USER is the nuget.org profile name, not the e-mail address.
+      # The feature is still rolling out: if Trusted Publishing is absent from the nuget.org
+      # account, drop these two steps and push with a long-lived key instead:
+      #   dotnet nuget push "artifacts/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source ...
+      - name: NuGet login (OIDC -> short-lived API key)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      # The .snupkg sitting next to the .nupkg is picked up and pushed with it.
+      - name: Push
+        run: >
+          dotnet nuget push "artifacts/*.nupkg"
+          --api-key ${{ steps.login.outputs.NUGET_API_KEY }}
+          --source https://api.nuget.org/v3/index.json

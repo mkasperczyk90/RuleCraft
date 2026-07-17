@@ -1,0 +1,22 @@
+version: 2
+
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # These move together and are noise one PR at a time.
+      microsoft-extensions:
+        patterns:
+          - Microsoft.Extensions.*
+    # Roslyn stays ungrouped and unignored on purpose. It is the security-sensitive dependency
+    # here, and its version is a documented contract: README's Constraints section states the
+    # 5.6.0 floor, and a host pinned lower fails restore with NU1605. A bump is a decision —
+    # review it with the README open, not by merging the green PR.
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

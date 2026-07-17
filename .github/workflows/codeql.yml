@@ -1,0 +1,37 @@
+name: CodeQL
+
+# Warranted here rather than habitual: this library compiles and executes generated code and
+# ships its own security analyzer. A second opinion on the gate is worth having.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, so newly published queries reach the code without waiting for a commit.
+    - cron: '21 6 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: csharp
+          # Buildless: CodeQL reads the sources directly, so no SDK setup and no second Release
+          # build. Switch to `manual` (plus a setup-dotnet + dotnet build step) if analysis of the
+          # generated/compiled surface ever turns out to need a real build.
+          build-mode: none
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v4
