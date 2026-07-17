@@ -65,8 +65,9 @@ regression, not noise.
   `///` on a positional parameter is dropped by the compiler and never reaches IntelliSense.
 - `Async` suffix only where there is real I/O. CPU-bound work stays synchronous and does not get
   wrapped in `Task.Run` on the consumer's behalf.
-- Tests are xunit, named as sentences (`The_readme_quickstart_works`). The README quickstart is
-  kept executable in `QuickstartTests.cs` — change one, change the other.
+- Tests are xunit, named as sentences (`The_readme_quickstart_works`). The README's code is kept
+  executable: the intro example in `ReadmeIntroTests.cs`, the quickstart in `QuickstartTests.cs` —
+  change one side, change the other.
 
 ## Before finishing
 
