@@ -1,4 +1,4 @@
-﻿using RuleCraft.Loading;
+using RuleCraft.Loading;
 
 namespace RuleCraft.Testing;
 

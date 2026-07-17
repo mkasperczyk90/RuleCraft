@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/mkasperczyk90/RuleCraft/security/advisories/new
+    about: Report privately here — not as a public issue — if you believe it is exploitable.
