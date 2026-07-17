@@ -1,0 +1,106 @@
+using Microsoft.Extensions.AI;
+
+namespace RuleCraft.Tests;
+
+// The README calls these IDiscountRule/Order; renamed here so they don't collide with the shared
+// fixtures — the same move QuickstartTests makes with QuickstartOrder.
+public interface IIntroDiscountRule
+{
+    decimal GetDiscount(IntroOrder order);
+}
+
+public sealed record IntroOrder(decimal Total, string CustomerType);
+
+/// <summary>
+/// The README's opening example, kept executable — same deal as <see cref="QuickstartTests"/>:
+/// it is the first code anyone reads on the package page, and it cannot be allowed to rot.
+/// The LLM is played by a scripted client, so no network and no key. Keep the two in step.
+/// </summary>
+public class ReadmeIntroTests
+{
+    private const string LlmAnswer =
+        """
+        ```csharp
+        using RuleCraft;
+        using RuleCraft.Tests;
+
+        namespace RuleCraft.Generated.ReadmeIntro;
+
+        public sealed class VipDiscountRule : IRule<IIntroDiscountRule, IntroOrder>, IIntroDiscountRule
+        {
+            public bool AppliesTo(IntroOrder context) => context.CustomerType == "vip" && context.Total >= 200m;
+            public IIntroDiscountRule Implementation => this;
+            public decimal GetDiscount(IntroOrder order) => 0.15m;
+        }
+
+        public sealed class VipBigOrderGetsFifteenPercent : IRuleTest
+        {
+            public string Name => "vip order of 200+ gets 15%";
+            public TestResult Run(TestContext context)
+            {
+                var rule = new VipDiscountRule();
+                RuleAssert.True(rule.AppliesTo(new IntroOrder(250m, "vip")));
+                RuleAssert.Equal(0.15m, rule.GetDiscount(new IntroOrder(250m, "vip")));
+                return TestResult.Passed();
+            }
+        }
+
+        public sealed class EveryoneElseIsSkipped : IRuleTest
+        {
+            public string Name => "small or non-vip orders do not match";
+            public TestResult Run(TestContext context)
+            {
+                RuleAssert.False(new VipDiscountRule().AppliesTo(new IntroOrder(150m, "vip")));
+                RuleAssert.False(new VipDiscountRule().AppliesTo(new IntroOrder(250m, "regular")));
+                return TestResult.Passed();
+            }
+        }
+        ```
+        """;
+
+    [Fact]
+    public async Task The_readme_intro_works()
+    {
+        var options = Fixtures.Options();
+        options.ChatClient = new FakeChatClient(LlmAnswer);
+        using var engine = new RuleEngine<IIntroDiscountRule, IntroOrder>(options);
+
+        var rule = await engine.AddRuleAsync("VIP customers get 15% off orders of 200 or more");
+
+        // "It is NOT live yet" is a claim in the snippet — hold it to that.
+        Assert.Equal(RuleStatus.PendingApproval, rule.Status);
+        Assert.Null(engine.Resolve(new IntroOrder(250m, "vip")));
+
+        engine.Approve(rule.Id, approvedBy: "you@corp.com");
+
+        var order = new IntroOrder(250m, "vip");
+        decimal discount = engine.Resolve(order)!.GetDiscount(order);
+        Assert.Equal(0.15m, discount);
+
+        // The predicate gates dispatch, not just the tests.
+        Assert.Null(engine.Resolve(new IntroOrder(50m, "vip")));
+    }
+
+    private sealed class FakeChatClient(params string[] responses) : IChatClient
+    {
+        private int _index;
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+        {
+            var text = responses[Math.Min(_index, responses.Length - 1)];
+            _index++;
+            return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, text)));
+        }
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose()
+        {
+        }
+    }
+}
