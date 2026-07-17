@@ -1,0 +1,60 @@
+# Records the conventions the code already follows, so drift shows up in review instead of
+# spreading. `dotnet format --verify-no-changes` passes against the tree as written.
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+charset = utf-8
+
+# The SDK writes these with a BOM; match that rather than fight it on every regeneration.
+[*.{csproj,props,slnx}]
+charset = utf-8-bom
+
+[*.{json,yml,yaml}]
+indent_size = 2
+
+# Two trailing spaces is a hard line break in Markdown — don't strip them.
+[*.md]
+trim_trailing_whitespace = false
+
+[*.cs]
+# — Namespaces —
+# The codebase is file-scoped throughout (66 files, no exceptions). Lock it in.
+csharp_style_namespace_declarations = file_scoped:warning
+
+# — using directives —
+# Outside the namespace everywhere in src/. Suggestion, not warning, because the sample
+# deliberately keeps a `using Engine = RuleEngine<…>` type alias inside its namespace.
+dotnet_sort_system_directives_first = true
+csharp_using_directive_placement = outside_namespace:suggestion
+
+# — var — used freely where the type is on the right; this reflects, not restricts, the code.
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_for_built_in_types = true:suggestion
+csharp_style_var_elsewhere = true:suggestion
+
+# — Expression-bodied members — the library leans on these heavily.
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+csharp_style_expression_bodied_properties = true:suggestion
+csharp_style_expression_bodied_accessors = true:suggestion
+
+# — Modern C# the code uses — pattern matching, collection expressions ([]), target-typed new.
+csharp_style_prefer_pattern_matching = true:suggestion
+dotnet_style_object_initializer = true:suggestion
+dotnet_style_collection_initializer = true:suggestion
+csharp_style_implicit_object_creation_when_type_is_apparent = true:suggestion
+
+# — this. is never used to qualify — keep it that way.
+dotnet_style_qualification_for_field = false:warning
+dotnet_style_qualification_for_property = false:warning
+dotnet_style_qualification_for_method = false:warning
+dotnet_style_qualification_for_event = false:warning
+
+# — Accessibility modifiers are always explicit in this code.
+dotnet_style_require_accessibility_modifiers = for_non_interface_members:warning
+
+# CS1591 (missing XML doc) is scoped in RuleCraft.csproj, not here — this file is style, not build.

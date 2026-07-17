@@ -1,0 +1,74 @@
+name: Bug report
+description: Something in RuleCraft behaves differently than documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: if you believe the issue is **exploitable**, do not open an issue — report it
+        privately via **Security → Report a vulnerability**. See [SECURITY.md](../blob/main/SECURITY.md)
+        for what is in scope and what the README documents as deliberate.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect instead?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Which kind of rule?
+      description: The three kinds share the pipeline but almost nothing else — this decides where to look first.
+      options:
+        - JSON rule (interpreted)
+        - Compiled C# rule (Roslyn)
+        - Static rule (AddStaticRule)
+        - Not rule-specific / don't know
+    validations:
+      required: true
+
+  - type: textarea
+    id: report
+    attributes:
+      label: ValidationReport
+      description: >
+        If the rule was rejected or quarantined, paste the report — it carries the compile
+        diagnostics, the security findings and the test results. It is the single most useful thing
+        in a RuleCraft bug report; without it we are guessing.
+      render: text
+
+  - type: textarea
+    id: source
+    attributes:
+      label: The rule document or source
+      description: >
+        The JSON document or the C# source, plus the spec if an LLM wrote it. Redact anything
+        confidential — but a rule you cannot share usually means a bug we cannot reproduce.
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: RuleCraft version
+      placeholder: "1.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: runtime
+    attributes:
+      label: .NET runtime and OS
+      description: Output of `dotnet --info` is ideal. The package targets net8.0 and is tested on net8.0 and net10.0, Linux and Windows.
+      placeholder: "net8.0 on Ubuntu 24.04"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: Before submitting
+      options:
+        - label: I read the README's threat model, and this is not one of the trade-offs it documents as deliberate (no sandbox for compiled rules, ReDoS via regex, stack overflow, prompt injection through a spec).
+          required: true

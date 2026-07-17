@@ -42,5 +42,20 @@ jobs:
       # ubuntu-latest is not box-ticking: this suite has only ever run on Windows, and the store
       # is full of Path, File.Move(overwrite) and case-sensitivity assumptions that Linux tests
       # for the first time here.
+      # coverlet.collector is already a dependency of the test project; "XPlat Code Coverage"
+      # turns it on. Output is a Cobertura file under TestResults/ — collected, not yet uploaded
+      # to a coverage service, which would need an account and a token.
       - name: Test
-        run: dotnet test tests/RuleCraft.Tests/RuleCraft.Tests.csproj --configuration Release --no-build
+        run: >
+          dotnet test tests/RuleCraft.Tests/RuleCraft.Tests.csproj
+          --configuration Release --no-build
+          --collect:"XPlat Code Coverage"
+          --results-directory TestResults
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ matrix.os }}
+          path: TestResults/**/coverage.cobertura.xml
+          if-no-files-found: warn
