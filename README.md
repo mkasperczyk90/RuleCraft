@@ -528,7 +528,7 @@ could equally well deploy code to the box.
 src/RuleCraft/            the library (single DLL): engine, JSON-DSL parser/interpreter,
                           Roslyn compiler, ALC loading, security analyzer, test harness,
                           store, LLM generation
-tests/RuleCraft.Tests/    xunit suite (147 tests, no network needed)
+tests/RuleCraft.Tests/    xunit suite (151 tests, no network needed)
 samples/RuleCraft.Sample/ ASP.NET Core minimal API demo + review console
 ```
 
