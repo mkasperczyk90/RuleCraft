@@ -11,7 +11,13 @@ internal static class TestExecution
     /// </summary>
     public static TestCaseResult RunWithTimeout(string name, TimeSpan timeout, Func<CancellationToken, TestResult> body)
     {
-        using var cts = new CancellationTokenSource(timeout);
+        // The token is deliberately NOT wired to a timer: we cancel only after the wait has already
+        // failed. That is what makes the verdict unambiguous. Wire it to fire at `timeout` and the
+        // two clocks race at the deadline — a body finishing a hair early looks the same as one that
+        // only returned because it was cancelled, so you must either trust a cancelled result
+        // (fail-open) or reject a legitimately-slow pass (fail-closed). Cancelling after the fact
+        // avoids the dilemma outright.
+        using var cts = new CancellationTokenSource();
         var task = Task.Run(() => body(cts.Token), cts.Token);
 
         TestCaseResult TimedOut() => new(name, TestOutcome.Failed,
@@ -19,25 +25,21 @@ internal static class TestExecution
 
         try
         {
-            // Two conditions, because the timeout can win either way. task.Wait times out when the
-            // body ignores the token and never returns (its thread then leaks — see summary). But a
-            // body that DOES observe the token races the wall clock: it can notice cancellation,
-            // return, and complete the task inside Wait's own window. Reporting task.Result then
-            // would pass a test that only returned because we cancelled it — the fail-open bug this
-            // guards against. If cancellation fired at all, it timed out, whatever the body returned.
-            if (!task.Wait(timeout) || cts.IsCancellationRequested)
+            // Wait returns true only if the body completed strictly within the budget, of its own
+            // accord — it never saw cancellation, so its result is trustworthy even at the boundary.
+            if (!task.Wait(timeout))
+            {
+                // Budget spent. Signal the token so a cooperative body stops and its thread is freed
+                // promptly; one that ignores the token leaks until it returns (see summary).
+                cts.Cancel();
                 return TimedOut();
+            }
 
             var result = task.Result;
             return new TestCaseResult(name, result.Outcome, result.Message);
         }
         catch (Exception ex)
         {
-            // A cooperative body may react to the token by throwing rather than returning; that is
-            // the same timeout, not a test failure with a "task was canceled" message.
-            if (cts.IsCancellationRequested && Unwrap(ex) is OperationCanceledException)
-                return TimedOut();
-
             return new TestCaseResult(name, TestOutcome.Failed, Unwrap(ex).Message);
         }
     }
