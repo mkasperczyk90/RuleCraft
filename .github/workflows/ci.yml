@@ -23,12 +23,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Honours the SDK pin in global.json, so a runner builds with the same SDK as a desk.
-      # If the test project ever multi-targets net8.0, add `dotnet-version: 8.0.x` here: with
-      # both inputs set, setup-dotnet installs both and global.json still picks the SDK.
+      # Both inputs on purpose: setup-dotnet installs each, and global.json still decides which
+      # SDK builds. The 8.0 entry is not redundant — SDK 10 carries no .NET 8 runtime, so without
+      # it the net8.0 test leg dies with "framework not found" before running a single test.
       - name: Set up .NET
         uses: actions/setup-dotnet@v6
         with:
+          dotnet-version: 8.0.x
           global-json-file: global.json
 
       - name: Restore
