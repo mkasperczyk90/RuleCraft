@@ -4,6 +4,15 @@ Maintained automatically by [Release Please](https://github.com/googleapis/relea
 [Conventional Commit](https://www.conventionalcommits.org/) messages — new entries are prepended
 above on each release; do not edit by hand.
 
+## [1.0.1](https://github.com/mkasperczyk90/RuleCraft/compare/v1.0.0...v1.0.1) (2026-07-18)
+
+
+### Bug Fixes
+
+* change .js to .mjs ([1e37fdc](https://github.com/mkasperczyk90/RuleCraft/commit/1e37fdc281200d46f099eaecad698f09867aeb58))
+* **testing:** treat cancelled test bodies as timeouts, not passes ([f27a6d5](https://github.com/mkasperczyk90/RuleCraft/commit/f27a6d53b0fda016c75963d6992d761fdfd99d6a))
+* **testing:** treat cancelled test bodies as timeouts, not passes ([d93b475](https://github.com/mkasperczyk90/RuleCraft/commit/d93b47556ebde25e2f4f8664c932ace227d053d3))
+
 ## [1.0.0](https://github.com/mkasperczyk90/RuleCraft/releases/tag/v1.0.0) (2026-07-17)
 
 
