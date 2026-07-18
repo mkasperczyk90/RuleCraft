@@ -1,19 +1,50 @@
 name: Release
 
-# Publishing to nuget.org cannot be undone — a version can be unlisted, never replaced.
-# Hence: a tag, a reviewed environment, and a test run before anything is pushed.
+# Release Please drives versioning from Conventional Commits. On each push to main it opens/updates
+# a "release PR" that bumps the version and CHANGELOG from the commits since the last release; the
+# level of the bump comes from the commit types (fix: -> patch, feat: -> minor, ! / BREAKING CHANGE
+# -> major). Merging that PR is the release: Release Please then creates the tag + GitHub release,
+# and the `publish` job below packs and pushes to nuget.org.
+#
+# publish is a *downstream job in the same run* as the release creation (gated on release_created),
+# NOT a separate workflow triggered by the new tag. That matters: a tag created with the default
+# GITHUB_TOKEN would not trigger a tag-listening workflow, so wiring publish as `needs` is what keeps
+# it firing without a PAT. (Trade-off of the default token: the release PR it opens does not trigger
+# the Build workflow's pull_request runs. Switch to a PAT only if you want CI on the release PR.)
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+
+# Publishing to nuget.org cannot be undone — a version can be unlisted, never replaced — so releases
+# are serialized and a publish under way is never cancelled.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  publish:
+  release-please:
     runs-on: ubuntu-latest
-    # Add required reviewers to the `release` environment in repo settings, so cutting a tag
-    # proposes a publish rather than performing one.
+    permissions:
+      contents: write        # create the release tag and GitHub release
+      pull-requests: write    # open and update the release PR
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+      version: ${{ steps.rp.outputs.version }}
+    steps:
+      # Reads release-please-config.json + .release-please-manifest.json from the repo root.
+      - uses: googleapis/release-please-action@v4
+        id: rp
+
+  publish:
+    needs: release-please
+    # Only the run that actually cut a release (the one where the release PR was merged) publishes.
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    # Add required reviewers to the `release` environment in repo settings to gate the push.
     environment: release
     permissions:
       contents: read
@@ -22,7 +53,10 @@ jobs:
       id-token: write
 
     steps:
+      # Build the exact commit Release Please tagged.
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v6
@@ -30,22 +64,18 @@ jobs:
           dotnet-version: 8.0.x
           global-json-file: global.json
 
-      - name: Version from the tag
-        # <Version> is hard-coded to 1.0.0 in the csproj. Without this, the second tag would
-        # push 1.0.0 again and nuget.org would reject it as a duplicate. v1.2.3 -> 1.2.3.
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
-
       - name: Test
         run: dotnet test RuleCraft.slnx --configuration Release
 
       - name: Pack
-        # ContinuousIntegrationBuild makes the build deterministic and gives SourceLink the
-        # normalized paths it needs for symbols to resolve to the source of this commit.
+        # Release Please already bumped <Version> in the csproj, but pass it explicitly so the package
+        # version cannot drift from the tag. ContinuousIntegrationBuild makes the build deterministic
+        # and gives SourceLink the normalized paths it needs for symbols to resolve to this commit.
         run: >
           dotnet pack src/RuleCraft/RuleCraft.csproj
           --configuration Release
           --output artifacts
-          -p:Version=${{ env.VERSION }}
+          -p:Version=${{ needs.release-please.outputs.version }}
           -p:ContinuousIntegrationBuild=true
 
       # Trusted publishing: no long-lived secret, just a token good for one key for one hour.
