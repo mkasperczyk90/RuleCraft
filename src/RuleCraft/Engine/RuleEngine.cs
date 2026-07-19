@@ -19,9 +19,10 @@ namespace RuleCraft;
 /// compiled C# (<see cref="AddRuleAsync"/>), JSON-DSL (<see cref="AddJsonRuleAsync"/>, requires
 /// <see cref="EnableJsonRules{TThen}"/>) and static host code (<see cref="AddStaticRule"/>).
 ///
-/// Only the two generation methods are asynchronous, because only they do I/O — the call to the
-/// LLM. Everything else (compiling, parsing, running tests, approving) is CPU-bound work that
-/// runs on the calling thread; offload it with <c>Task.Run</c> if a request thread must not block.
+/// Only rule generation is truly asynchronous, because only it does I/O — the call to the LLM.
+/// Everything else (compiling, parsing, running tests, approving) is CPU-bound work that runs on the
+/// calling thread; the <c>...FromSourceAsync</c>/<see cref="ApproveAsync"/>/<see cref="EnableAsync"/>
+/// wrappers offload it to <c>Task.Run</c> for a request thread that must not block.
 ///
 /// The engine is a thread-safe singleton: <see cref="Resolve"/> is lock-free, and mutations
 /// are serialized per rule id. <see cref="Dispose"/> unloads every rule assembly it owns.
@@ -29,7 +30,7 @@ namespace RuleCraft;
 public sealed class RuleEngine<TContract, TContext> : IDisposable where TContract : class
 {
     private readonly RuleEngineOptions _options;
-    private readonly RuleStore _store;
+    private readonly IRuleStore _store;
     private readonly RuleRegistry<TContract, TContext> _registry = new();
     private readonly RuleLocks _locks = new();
     private readonly CSharpRuleKind<TContract, TContext> _csharp;
@@ -38,7 +39,9 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
     private IRuleKind<TContract, TContext>? _json;
     private RulePrompts? _jsonPrompts;
     private TContract? _fallback;
-    private bool _disposed;
+    // Volatile: Dispose runs on one thread while Resolve reads this on others, so the write must be
+    // visible without a lock (Resolve is deliberately lock-free).
+    private volatile bool _disposed;
 
     // Reflected once per closed generic type, not per rule: the fingerprint walks every public
     // member of both types.
@@ -50,7 +53,7 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
     {
         _options = (options ?? new RuleEngineOptions()).Snapshot();
         _logger = _options.LoggerFactory.CreateLogger($"RuleCraft.RuleEngine<{typeof(TContract).Name}>");
-        _store = new RuleStore(_options.StorePath, _logger);
+        _store = _options.Store ?? new FileRuleStore(_options.StorePath, _logger);
         _csharp = new CSharpRuleKind<TContract, TContext>(_options, AcceptanceTests);
     }
 
@@ -63,12 +66,12 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
     /// Null names mean metadata written before the fields existed: assume it is ours, as the store
     /// always did.
     /// </summary>
-    private static bool IsForAnotherContract(RuleMetadata metadata) =>
+    private static bool IsForAnotherContract(RuleRecord metadata) =>
         (metadata.ContractType is not null && metadata.ContractType != ContractTypeName)
         || (metadata.ContextType is not null && metadata.ContextType != ContextTypeName);
 
     /// <summary>Says which of the two happened, instead of guessing in the status reason.</summary>
-    private static string RevalidationFailure(RuleMetadata metadata) =>
+    private static string RevalidationFailure(RuleRecord metadata) =>
         metadata.ContractFingerprint == CurrentFingerprint
             ? "Failed revalidation: the rule no longer passes its own gates."
             : $"Failed revalidation: {ContractTypeName} or {ContextTypeName} changed shape since this rule was approved.";
@@ -168,7 +171,7 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
 
         _logger.LogInformation(
             "Static rule {RuleId} ('{Name}') registered from host code with priority {Priority}.",
-            entry.Id, entry.Name, rule.Priority);
+            entry.Id, ForLog(entry.Name), rule.Priority);
 
         return ToInfo(entry, EvaluationOrders());
     }
@@ -219,6 +222,20 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
     public RuleInfo AddJsonRuleFromSource(string source, string? name = null, string? spec = null) =>
         AddFromSource(source, name, spec, RuleOrigin.Json);
 
+    /// <summary>
+    /// <see cref="AddRuleFromSource"/> offloaded to the thread pool, so a request thread does not
+    /// block on the Roslyn compile. The token is honoured at entry (it cannot interrupt a compile
+    /// already under way).
+    /// </summary>
+    public Task<RuleInfo> AddRuleFromSourceAsync(
+        string source, string? name = null, string? spec = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => AddRuleFromSource(source, name, spec), cancellationToken);
+
+    /// <inheritdoc cref="AddRuleFromSourceAsync"/>
+    public Task<RuleInfo> AddJsonRuleFromSourceAsync(
+        string source, string? name = null, string? spec = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => AddJsonRuleFromSource(source, name, spec), cancellationToken);
+
     private RuleInfo AddFromSource(string source, string? name, string? spec, RuleOrigin origin)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -244,7 +261,7 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
         string id, string? name, string? spec, string source,
         PipelineOutcome<TContract, TContext> outcome, RuleOrigin origin, string? modelId)
     {
-        var metadata = new RuleMetadata
+        var metadata = new RuleRecord
         {
             Id = id,
             // An explicit name wins; otherwise use the one the document gave itself.
@@ -254,14 +271,17 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
             Status = RuleStatus.PendingApproval,
             Priority = outcome.Priority,
             CreatedUtc = DateTimeOffset.UtcNow,
+            // Hash the exact source we hand the store; the store writes it verbatim, so this stays the
+            // signal the tamper check compares against.
+            SourceSha256 = RuleHash.Sha256Hex(source),
             ContractType = ContractTypeName,
             ContextType = ContextTypeName,
             ContractFingerprint = CurrentFingerprint,
             ModelId = modelId,
             Report = outcome.Report,
         };
-        _store.Save(metadata, source);
-        _logger.LogInformation("Rule {RuleId} ('{Name}') stored as PendingApproval.", id, metadata.Name);
+        _store.Save(new StoredRule(metadata, source));
+        _logger.LogInformation("Rule {RuleId} ('{Name}') stored as PendingApproval.", id, ForLog(metadata.Name));
 
         return _options.AutoApprove
             ? ApproveCore(metadata, approvedBy: "auto-approve", preValidated: outcome)
@@ -296,6 +316,13 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
         }
     }
 
+    /// <summary>
+    /// <see cref="Approve"/> offloaded to the thread pool: approval recompiles the rule, so it is as
+    /// expensive as adding one. The token is honoured at entry, not mid-compile.
+    /// </summary>
+    public Task<RuleInfo> ApproveAsync(string ruleId, string approvedBy, CancellationToken cancellationToken = default) =>
+        Task.Run(() => Approve(ruleId, approvedBy), cancellationToken);
+
     /// <summary>Rejects a pending rule. It stays on disk for audit but will never load.</summary>
     public RuleInfo Reject(string ruleId, string reason)
     {
@@ -307,16 +334,15 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
             if (metadata.Status != RuleStatus.PendingApproval)
                 throw new RuleStateException($"Rule '{ruleId}' is {metadata.Status}; only PendingApproval rules can be rejected.");
 
-            metadata.Status = RuleStatus.Rejected;
-            metadata.StatusReason = reason;
-            _store.UpdateMetadata(metadata);
-            _logger.LogInformation("Rule {RuleId} rejected: {Reason}", ruleId, reason);
-            return ToInfo(metadata);
+            var rejected = metadata with { Status = RuleStatus.Rejected, StatusReason = reason };
+            _store.Update(rejected);
+            _logger.LogInformation("Rule {RuleId} rejected: {Reason}", ForLog(ruleId), ForLog(reason));
+            return ToInfo(rejected);
         }
     }
 
     private RuleInfo ApproveCore(
-        RuleMetadata metadata, string approvedBy, PipelineOutcome<TContract, TContext>? preValidated)
+        RuleRecord metadata, string approvedBy, PipelineOutcome<TContract, TContext>? preValidated)
     {
         // Both of these are host configuration problems rather than bad rules, so they throw before
         // anything is written to disk: a JSON rule with JSON support disabled, and a rule belonging
@@ -330,7 +356,7 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
 
         var source = _store.ReadSource(metadata);
 
-        if (_store.IsSourceTampered(metadata))
+        if (IsSourceTampered(metadata, source))
             throw new RuleStateException(
                 $"Source of rule '{metadata.Id}' was modified on disk after validation; refusing to load it.");
 
@@ -339,10 +365,8 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
         var outcome = preValidated ?? kind.Validate(metadata.Id, source);
         if (outcome.Load is null)
         {
-            metadata.Status = RuleStatus.Quarantined;
-            metadata.StatusReason = RevalidationFailure(metadata);
-            metadata.Report = outcome.Report;
-            _store.UpdateMetadata(metadata);
+            var quarantined = metadata with { Report = outcome.Report };
+            Quarantine(quarantined, RevalidationFailure(metadata));
             throw new RuleValidationException(
                 $"Rule '{metadata.Id}' failed revalidation and was quarantined.", outcome.Report);
         }
@@ -350,18 +374,21 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
         var loaded = outcome.Load();
         _registry.Add(metadata.Id, metadata.Name, metadata.Origin, loaded.Rule, loaded.Context);
 
-        metadata.Status = RuleStatus.Approved;
-        metadata.StatusReason = null;
-        metadata.ApprovedBy = approvedBy;
-        metadata.ApprovedAtUtc = DateTimeOffset.UtcNow;
-        metadata.Priority = outcome.Priority;
-        metadata.ContractType = ContractTypeName;
-        metadata.ContextType = ContextTypeName;
-        metadata.ContractFingerprint = CurrentFingerprint;
-        _store.UpdateMetadata(metadata);
-        _logger.LogInformation("Rule {RuleId} approved by {ApprovedBy} and loaded.", metadata.Id, approvedBy);
+        var approved = metadata with
+        {
+            Status = RuleStatus.Approved,
+            StatusReason = null,
+            ApprovedBy = approvedBy,
+            ApprovedAtUtc = DateTimeOffset.UtcNow,
+            Priority = outcome.Priority,
+            ContractType = ContractTypeName,
+            ContextType = ContextTypeName,
+            ContractFingerprint = CurrentFingerprint,
+        };
+        _store.Update(approved);
+        _logger.LogInformation("Rule {RuleId} approved by {ApprovedBy} and loaded.", metadata.Id, ForLog(approvedBy));
 
-        return ToInfo(metadata);
+        return ToInfo(approved);
     }
 
     /// <summary>
@@ -391,6 +418,10 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
         }
     }
 
+    /// <summary><see cref="Enable"/> offloaded to the thread pool; like approval, it recompiles the rule.</summary>
+    public Task<RuleInfo> EnableAsync(string ruleId, string enabledBy, CancellationToken cancellationToken = default) =>
+        Task.Run(() => Enable(ruleId, enabledBy), cancellationToken);
+
     // ---------------------------------------------------------------- lifecycle
 
     /// <summary>
@@ -412,12 +443,9 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
                 throw new RuleNotFoundException(ruleId);
 
             if (metadata is not null)
-            {
-                metadata.Status = RuleStatus.Disabled;
-                _store.UpdateMetadata(metadata);
-            }
+                _store.Update(metadata with { Status = RuleStatus.Disabled });
 
-            _logger.LogInformation("Rule {RuleId} removed (was loaded: {WasLoaded}).", ruleId, removed is not null);
+            _logger.LogInformation("Rule {RuleId} removed (was loaded: {WasLoaded}).", ForLog(ruleId), removed is not null);
         }
     }
 
@@ -450,7 +478,7 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
                         "Rule {RuleId} ('{Name}') was written against {StoredContract}/{StoredContext} but this " +
                         "engine serves {Contract}/{Context}; skipping it. Two engines are sharing a StorePath — " +
                         "give each its own.",
-                        metadata.Id, metadata.Name, metadata.ContractType, metadata.ContextType,
+                        metadata.Id, ForLog(metadata.Name), ForLog(metadata.ContractType), ForLog(metadata.ContextType),
                         ContractTypeName, ContextTypeName);
                     continue;
                 }
@@ -463,27 +491,27 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
                     _logger.LogError(
                         "Rule {RuleId} ('{Name}') is a JSON rule but JSON rules are not enabled; skipping it. " +
                         "Call EnableJsonRules(...) before ReloadFromStore().",
-                        metadata.Id, metadata.Name);
+                        metadata.Id, ForLog(metadata.Name));
                     continue;
                 }
 
-                if (_store.IsSourceTampered(metadata))
+                var source = _store.ReadSource(metadata);
+                if (IsSourceTampered(metadata, source))
                 {
                     Quarantine(metadata, "Source file on disk does not match the stored hash (tampered?).");
                     continue;
                 }
 
-                var outcome = KindFor(metadata.Origin).Validate(metadata.Id, _store.ReadSource(metadata));
+                var outcome = KindFor(metadata.Origin).Validate(metadata.Id, source);
                 if (outcome.Load is null)
                 {
-                    metadata.Report = outcome.Report;
-                    Quarantine(metadata, RevalidationFailure(metadata));
+                    Quarantine(metadata with { Report = outcome.Report }, RevalidationFailure(metadata));
                     continue;
                 }
 
                 var loaded = outcome.Load();
                 _registry.Add(metadata.Id, metadata.Name, metadata.Origin, loaded.Rule, loaded.Context);
-                _logger.LogInformation("Rule {RuleId} ('{Name}') reloaded from store.", metadata.Id, metadata.Name);
+                _logger.LogInformation("Rule {RuleId} ('{Name}') reloaded from store.", metadata.Id, ForLog(metadata.Name));
             }
         }
     }
@@ -507,17 +535,30 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
             entry.Context?.Unload();
     }
 
-    private void Quarantine(RuleMetadata metadata, string reason)
+    private void Quarantine(RuleRecord metadata, string reason)
     {
-        metadata.Status = RuleStatus.Quarantined;
-        metadata.StatusReason = reason;
-        _store.UpdateMetadata(metadata);
+        _store.Update(metadata with { Status = RuleStatus.Quarantined, StatusReason = reason });
         _logger.LogWarning("Rule {RuleId} quarantined: {Reason}", metadata.Id, reason);
     }
+
+    // Integrity lives in the engine, not the store, so a custom IRuleStore stays pure persistence:
+    // compare the hash of what is on disk now to the one recorded when the source was saved.
+    private static bool IsSourceTampered(RuleRecord record, string source) =>
+        record.SourceSha256 is not null && RuleHash.Sha256Hex(source) != record.SourceSha256;
 
     // ---------------------------------------------------------------- dispatch
 
     /// <summary>Returns the implementation of the first rule in evaluation order that matches, the fallback, or null.</summary>
+    /// <remarks>
+    /// Trust boundary: the engine guards its OWN calls into a rule — <c>AppliesTo</c> and
+    /// <c>Priority</c> run under try/catch here — but the implementation this returns is handed
+    /// straight back to you, and the method you then invoke on it runs on your thread with no
+    /// timeout, no exception isolation and no memory bound. For a compiled (LLM-generated) rule that
+    /// is unsandboxed code: a pathological branch can loop forever or throw. The real defense is the
+    /// acceptance tests and the human approval gate, not this call — a rule you would not hand a
+    /// production request to should not be Approved. Wrap the invocation yourself if a request thread
+    /// must never block on it.
+    /// </remarks>
     public TContract? Resolve(TContext context)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -598,6 +639,25 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
     // ---------------------------------------------------------------- introspection
 
     /// <summary>
+    /// One rule by id — a stored rule of any status (unless another engine left it in the folder), or
+    /// a static rule; null when there is no such rule. A single store lookup, so cheaper than
+    /// filtering <see cref="GetRules"/> when you only want one — map it to a details endpoint.
+    /// </summary>
+    public RuleInfo? GetRule(string id)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        var orders = EvaluationOrders();
+
+        var metadata = _store.Find(id);
+        if (metadata is not null && !IsForAnotherContract(metadata))
+            return ToInfo(metadata, orders);
+
+        var entry = _registry.Snapshot.FirstOrDefault(e => e.Id == id && e.Origin == RuleOrigin.Static);
+        return entry is not null ? ToInfo(entry, orders) : null;
+    }
+
+    /// <summary>
     /// Every rule the engine knows about — stored ones (any status) and static ones — with the
     /// position each loaded rule occupies in the evaluation order. Loaded rules come first, in
     /// the exact order their predicates are consulted; everything else follows by creation time
@@ -622,7 +682,7 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
     /// The store's rules minus any another engine left in the same folder. An engine reports on the
     /// rules it could actually run — listing a rule it would refuse to approve helps nobody.
     /// </summary>
-    private IEnumerable<RuleMetadata> OwnRules() => _store.LoadAll().Where(m => !IsForAnotherContract(m));
+    private IEnumerable<RuleRecord> OwnRules() => _store.LoadAll().Where(m => !IsForAnotherContract(m));
 
     /// <summary>Loaded rule id → 0-based position in the current evaluation order.</summary>
     private Dictionary<string, int> EvaluationOrders()
@@ -634,7 +694,7 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
         return orders;
     }
 
-    private RuleInfo ToInfo(RuleMetadata metadata, Dictionary<string, int>? orders = null) => new(
+    private RuleInfo ToInfo(RuleRecord metadata, Dictionary<string, int>? orders = null) => new(
         metadata.Id,
         metadata.Name,
         metadata.Status,
@@ -668,7 +728,15 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
 
     private static readonly ValidationReport EmptyReport = new([], [], []);
 
-    private static string NewId() => Guid.NewGuid().ToString("N")[..12];
+    // Full 128 bits, not a truncated slice: the id names the store files a rule is saved under, so a
+    // collision would silently overwrite another rule. 48 bits (12 hex) reached a 1% birthday chance
+    // around a few million rules; the full GUID makes that a non-consideration.
+    private static string NewId() => Guid.NewGuid().ToString("N");
+
+    // User-controlled text (ids from callers, rule names, rejection reasons, approver strings) can
+    // carry newlines that forge a second, fake log line; flatten CR/LF before it reaches a template.
+    private static string ForLog(string? value) =>
+        value is null ? string.Empty : value.Replace('\r', ' ').Replace('\n', ' ');
 
     private static string? Coalesce(params string?[] candidates) =>
         candidates.FirstOrDefault(c => !string.IsNullOrWhiteSpace(c));

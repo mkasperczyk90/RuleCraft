@@ -205,10 +205,11 @@ The engine is thread-safe and meant to be a singleton: resolution is lock-free, 
 removing rules swaps an immutable snapshot, and mutations of one rule are serialized — an
 `Approve` racing a `Reject` cannot leave a rule live but recorded as rejected.
 
-**Only the two generation methods are `async`**, because only they do I/O (the call to the LLM).
-Compiling, parsing, testing and approving are CPU-bound and run on the calling thread: an `Approve`
-costs a Roslyn compile, and the API says so rather than hiding it behind a `Task` that was never
-asynchronous. Wrap those calls in `Task.Run` if a request thread must not block.
+**Only rule generation is truly `async`** — it does I/O (the call to the LLM). Compiling, parsing,
+testing and approving are CPU-bound and run on the calling thread: an `Approve` costs a Roslyn
+compile, and the API says so rather than hiding it behind a `Task` that was never asynchronous. When
+a request thread must not block, use the offload wrappers — `AddRuleFromSourceAsync`, `ApproveAsync`,
+`EnableAsync` — which run that work on `Task.Run` for you.
 
 `Dispose()` unloads every rule assembly the engine loaded — worth doing if you build engines per
 scope (a test suite, say); a singleton normally lives as long as the process.
@@ -222,7 +223,13 @@ scope (a test suite, say); a singleton normally lives as long as the process.
 | **Static** — a class in your repo | `AddStaticRule(new BulkOrderRule())` | already compiled | no | no — git is the gate | re-register at startup |
 
 All three land in the same registry and compete purely by priority — the dispatcher cannot tell
-them apart, and `GetRules()` lists them side by side.
+them apart, and `GetRules()` lists them side by side. `GetRule(id)` fetches one.
+
+**Where rules live.** By default, a `rules/` folder on disk (`StorePath`), reloaded at startup by
+`ReloadFromStore()`. If several instances of your app should share one set of rules — approve on one,
+run it on the others — point `RuleEngineOptions.Store` at your own `IRuleStore` (backed by a database,
+say) instead of the default file store. Each instance picks up the others' changes on its next
+`ReloadFromStore()`.
 
 A **static** rule is just a class implementing `IRule<TContract, TContext>`:
 
@@ -461,8 +468,8 @@ concepts. Depth, size and node count are bounded, so a rule cannot burn CPU on e
 **Compiled C# rules are not.** .NET has **no in-process sandbox**: approved rule code runs with
 the full permissions of your process. The security gate (reference whitelist + semantic-model
 analyzer banning `System.IO`, `System.Net`, `System.Reflection`, `System.Diagnostics`, interop,
-threading, `Activator`, `Environment`, `unsafe`, `dynamic`, preprocessor directives, …) is a
-**guardrail and review aid, not a sandbox**.
+threading, `Activator`, `Environment`, `AppContext`, `unsafe`, `dynamic`, preprocessor directives, …)
+is a **guardrail and review aid, not a sandbox**.
 
 The policy resolves most-specific-first — member, then type, then namespace — so it can hand out
 `System.Threading.Tasks` (an async contract cannot be implemented without naming `Task`) while
@@ -479,7 +486,10 @@ are reasons the human approval step is not decoration.
   need it — so a catastrophically backtracking pattern in `AppliesTo` is a ReDoS on your hot path,
   triggered by whatever data hits it. The test harness times out a candidate that hangs *during
   validation*; it cannot help once the rule is live. Review regexes in rule code the way you would
-  in your own.
+  in your own. The engine guards its *own* calls into a rule (`AppliesTo`, `Priority`), but the
+  method you invoke on the resolved implementation runs on your thread with no timeout — wrap it in
+  `RuleExecution.TryInvoke(() => rule.GetDiscount(order), timeout, out var result, out _)` when a
+  request must not block on it.
 - **Kill the process by recursing.** `StackOverflowException` cannot be caught in .NET. The
   `try`/`catch` around every predicate makes a *throwing* rule harmless; a rule that recurses
   without a base case takes the process down regardless, and no in-process gate can change that.
@@ -513,7 +523,9 @@ could equally well deploy code to the box.
 - **One `StorePath` per engine.** The default is a `rules/` folder relative to the process, so two
   engines over different contracts land in the same one. Each records the contract its rules were
   written against, ignores the other's, and logs an error at reload rather than quarantining what
-  is not its own — but the folder is still shared, and you should not rely on that politeness.
+  is not its own — but the folder is still shared, and you should not rely on that politeness. To
+  share one rule set across app instances on purpose, use a custom `IRuleStore` rather than the
+  default file store.
 - `Expression.Compile` is used for JSON field access, so a JSON-rule engine will not survive full
   AOT either.
 - Source files on disk are hashed; a tampered file is refused at approval and quarantined on
@@ -528,7 +540,7 @@ could equally well deploy code to the box.
 src/RuleCraft/            the library (single DLL): engine, JSON-DSL parser/interpreter,
                           Roslyn compiler, ALC loading, security analyzer, test harness,
                           store, LLM generation
-tests/RuleCraft.Tests/    xunit suite (151 tests, no network needed)
+tests/RuleCraft.Tests/    xunit suite (173 tests, no network needed)
 samples/RuleCraft.Sample/ ASP.NET Core minimal API demo + review console
 ```
 

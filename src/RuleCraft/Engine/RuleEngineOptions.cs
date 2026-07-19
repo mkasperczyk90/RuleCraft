@@ -19,6 +19,14 @@ public sealed class RuleEngineOptions
     /// </summary>
     public string StorePath { get; set; } = Path.Combine(Environment.CurrentDirectory, "rules");
 
+    /// <summary>
+    /// Where rules are persisted. Leave null to use a <see cref="FileRuleStore"/> over
+    /// <see cref="StorePath"/>; set it to a custom <see cref="IRuleStore"/> (a shared database, say)
+    /// so several engine instances can see the same rules. When set, <see cref="StorePath"/> is ignored.
+    /// The reference is shared, not deep-copied, so the store must be thread-safe.
+    /// </summary>
+    public IRuleStore? Store { get; set; }
+
     /// <summary>LLM used by <c>AddRuleAsync(spec)</c>. Not required for source-based or store-reload flows.</summary>
     public IChatClient? ChatClient { get; set; }
 
@@ -67,6 +75,7 @@ public sealed class RuleEngineOptions
             AutoApprove = AutoApprove,
             SecurityPolicy = SecurityPolicy.Snapshot(),
             LoggerFactory = LoggerFactory,
+            Store = Store,
         };
 
         foreach (var assembly in AdditionalReferenceAssemblies)
@@ -77,18 +86,22 @@ public sealed class RuleEngineOptions
 
     private void Validate()
     {
-        if (string.IsNullOrWhiteSpace(StorePath))
-            throw new ArgumentException("StorePath must name a folder for the rule store.", nameof(StorePath));
+        // A custom Store owns its own addressing; StorePath is only meaningful for the default file store.
+        if (Store is null)
+        {
+            if (string.IsNullOrWhiteSpace(StorePath))
+                throw new ArgumentException("StorePath must name a folder for the rule store.", nameof(StorePath));
 
-        // The folder itself is created lazily, on first write — but a malformed path should fail
-        // here, at the composition root, not deep inside the first request that adds a rule.
-        try
-        {
-            Path.GetFullPath(StorePath);
-        }
-        catch (Exception ex)
-        {
-            throw new ArgumentException($"StorePath '{StorePath}' is not a usable path.", nameof(StorePath), ex);
+            // The folder itself is created lazily, on first write — but a malformed path should fail
+            // here, at the composition root, not deep inside the first request that adds a rule.
+            try
+            {
+                Path.GetFullPath(StorePath);
+            }
+            catch (Exception ex)
+            {
+                throw new ArgumentException($"StorePath '{StorePath}' is not a usable path.", nameof(StorePath), ex);
+            }
         }
 
         if (MaxGenerationAttempts < 1)
