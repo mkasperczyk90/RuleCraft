@@ -84,6 +84,18 @@ public class CustomRuleStoreTests
         Assert.Equal(0.10m, resolved!.GetDiscount(new TestOrder(150m, "alice", 1)));
     }
 
+    [Theory]
+    [InlineData("../escape")]
+    [InlineData("a/b")]
+    [InlineData("..")]
+    public void The_file_store_refuses_a_rule_id_that_could_escape_its_folder(string hostileId)
+    {
+        var store = new FileRuleStore(Fixtures.NewStorePath());
+
+        // Find is the reachable path: Approve/Reject/Enable pass a caller-supplied id straight to it.
+        Assert.Throws<ArgumentException>(() => store.Find(hostileId));
+    }
+
     [Fact]
     public void A_custom_store_still_gets_tamper_protection_from_the_engine()
     {

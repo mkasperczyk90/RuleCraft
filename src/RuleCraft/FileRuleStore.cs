@@ -126,7 +126,19 @@ public sealed class FileRuleStore : IRuleStore
     }
 
     private string SourcePath(RuleRecord record) =>
-        Path.Combine(_root, record.Id + (record.Origin == RuleOrigin.Json ? ".rule.json" : ".cs"));
+        Path.Combine(_root, SafeId(record.Id) + (record.Origin == RuleOrigin.Json ? ".rule.json" : ".cs"));
 
-    private string MetadataPath(string id) => Path.Combine(_root, id + MetadataSuffix);
+    private string MetadataPath(string id) => Path.Combine(_root, SafeId(id) + MetadataSuffix);
+
+    // A rule id becomes a file name under the store root. Engine-minted ids are GUIDs, but Find,
+    // Approve and friends take an id straight from the caller — an HTTP route value, say — so a value
+    // like "../../secret" must not be allowed to climb out of the folder. Require a single, plain path
+    // segment and reject anything else before it reaches Path.Combine.
+    private static string SafeId(string id)
+    {
+        if (string.IsNullOrEmpty(id) || id is "." or ".."
+            || !string.Equals(id, Path.GetFileName(id), StringComparison.Ordinal))
+            throw new ArgumentException($"'{id}' is not a valid rule id: it must be a single path segment.", nameof(id));
+        return id;
+    }
 }
