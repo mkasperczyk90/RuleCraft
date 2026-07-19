@@ -31,6 +31,13 @@
   </PropertyGroup>
 
   <PropertyGroup>
+    <!-- This library compiles and runs generated code, so turn every security analyzer to 11 on the
+         library itself (the rest of the tree keeps the default set). -->
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisModeSecurity>All</AnalysisModeSecurity>
+  </PropertyGroup>
+
+  <PropertyGroup>
     <!-- Consumers read this API through IntelliSense; the docs are half the design. -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <!-- CS1591 (missing XML comment): the types worth explaining carry docs, and demanding one on

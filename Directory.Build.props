@@ -7,5 +7,10 @@
     <!-- Off by default: only the shipped library owes its consumers IntelliSense.
          RuleCraft.csproj turns it on for itself. -->
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- A warning in CI is a warning ignored; fail on it. The tree builds clean today. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Pin the restore graph: CI restores in locked mode, so a dependency cannot change
+         underfoot between a green PR and the merge. Regenerate with `dotnet restore` after a bump. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 </Project>

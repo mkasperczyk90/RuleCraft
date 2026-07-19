@@ -79,6 +79,7 @@ public sealed class SecurityPolicy
             policy.BannedTypes.UnionWith(new[]
             {
                 "System.Activator",
+                "System.AppContext",
                 "System.AppDomain",
                 "System.Environment",
                 "System.GC",

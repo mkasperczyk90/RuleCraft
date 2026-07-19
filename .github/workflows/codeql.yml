@@ -28,10 +28,19 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: csharp
-          # Buildless: CodeQL reads the sources directly, so no SDK setup and no second Release
-          # build. Switch to `manual` (plus a setup-dotnet + dotnet build step) if analysis of the
-          # generated/compiled surface ever turns out to need a real build.
-          build-mode: none
+          # Traced build (not buildless): this library's whole point is the code it compiles and
+          # runs, so CodeQL sees more with a real build's dataflow than by reading sources alone.
+          build-mode: manual
+
+      # Both inputs on purpose, same as ci.yml: setup-dotnet installs each, global.json picks the SDK.
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+          global-json-file: global.json
+
+      - name: Build
+        run: dotnet build RuleCraft.slnx --configuration Release
 
       - name: Analyze
         uses: github/codeql-action/analyze@v4

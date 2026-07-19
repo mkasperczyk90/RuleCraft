@@ -32,8 +32,10 @@ jobs:
           dotnet-version: 8.0.x
           global-json-file: global.json
 
+      # Locked mode: fail if the resolved graph differs from the committed packages.lock.json, so a
+      # dependency cannot change between a green PR and the merge without the lockfile changing too.
       - name: Restore
-        run: dotnet restore RuleCraft.slnx
+        run: dotnet restore RuleCraft.slnx --locked-mode
 
       # The whole solution, so a break in the sample is a build failure and not a surprise later.
       - name: Build
