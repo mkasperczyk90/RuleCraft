@@ -19,9 +19,10 @@ namespace RuleCraft;
 /// compiled C# (<see cref="AddRuleAsync"/>), JSON-DSL (<see cref="AddJsonRuleAsync"/>, requires
 /// <see cref="EnableJsonRules{TThen}"/>) and static host code (<see cref="AddStaticRule"/>).
 ///
-/// Only the two generation methods are asynchronous, because only they do I/O — the call to the
-/// LLM. Everything else (compiling, parsing, running tests, approving) is CPU-bound work that
-/// runs on the calling thread; offload it with <c>Task.Run</c> if a request thread must not block.
+/// Only rule generation is truly asynchronous, because only it does I/O — the call to the LLM.
+/// Everything else (compiling, parsing, running tests, approving) is CPU-bound work that runs on the
+/// calling thread; the <c>...FromSourceAsync</c>/<see cref="ApproveAsync"/>/<see cref="EnableAsync"/>
+/// wrappers offload it to <c>Task.Run</c> for a request thread that must not block.
 ///
 /// The engine is a thread-safe singleton: <see cref="Resolve"/> is lock-free, and mutations
 /// are serialized per rule id. <see cref="Dispose"/> unloads every rule assembly it owns.
@@ -170,7 +171,7 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
 
         _logger.LogInformation(
             "Static rule {RuleId} ('{Name}') registered from host code with priority {Priority}.",
-            entry.Id, entry.Name, rule.Priority);
+            entry.Id, ForLog(entry.Name), rule.Priority);
 
         return ToInfo(entry, EvaluationOrders());
     }
@@ -280,7 +281,7 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
             Report = outcome.Report,
         };
         _store.Save(new StoredRule(metadata, source));
-        _logger.LogInformation("Rule {RuleId} ('{Name}') stored as PendingApproval.", id, metadata.Name);
+        _logger.LogInformation("Rule {RuleId} ('{Name}') stored as PendingApproval.", id, ForLog(metadata.Name));
 
         return _options.AutoApprove
             ? ApproveCore(metadata, approvedBy: "auto-approve", preValidated: outcome)
@@ -335,7 +336,7 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
 
             var rejected = metadata with { Status = RuleStatus.Rejected, StatusReason = reason };
             _store.Update(rejected);
-            _logger.LogInformation("Rule {RuleId} rejected: {Reason}", ruleId, reason);
+            _logger.LogInformation("Rule {RuleId} rejected: {Reason}", ForLog(ruleId), ForLog(reason));
             return ToInfo(rejected);
         }
     }
@@ -385,7 +386,7 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
             ContractFingerprint = CurrentFingerprint,
         };
         _store.Update(approved);
-        _logger.LogInformation("Rule {RuleId} approved by {ApprovedBy} and loaded.", metadata.Id, approvedBy);
+        _logger.LogInformation("Rule {RuleId} approved by {ApprovedBy} and loaded.", metadata.Id, ForLog(approvedBy));
 
         return ToInfo(approved);
     }
@@ -444,7 +445,7 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
             if (metadata is not null)
                 _store.Update(metadata with { Status = RuleStatus.Disabled });
 
-            _logger.LogInformation("Rule {RuleId} removed (was loaded: {WasLoaded}).", ruleId, removed is not null);
+            _logger.LogInformation("Rule {RuleId} removed (was loaded: {WasLoaded}).", ForLog(ruleId), removed is not null);
         }
     }
 
@@ -477,7 +478,7 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
                         "Rule {RuleId} ('{Name}') was written against {StoredContract}/{StoredContext} but this " +
                         "engine serves {Contract}/{Context}; skipping it. Two engines are sharing a StorePath — " +
                         "give each its own.",
-                        metadata.Id, metadata.Name, metadata.ContractType, metadata.ContextType,
+                        metadata.Id, ForLog(metadata.Name), ForLog(metadata.ContractType), ForLog(metadata.ContextType),
                         ContractTypeName, ContextTypeName);
                     continue;
                 }
@@ -490,7 +491,7 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
                     _logger.LogError(
                         "Rule {RuleId} ('{Name}') is a JSON rule but JSON rules are not enabled; skipping it. " +
                         "Call EnableJsonRules(...) before ReloadFromStore().",
-                        metadata.Id, metadata.Name);
+                        metadata.Id, ForLog(metadata.Name));
                     continue;
                 }
 
@@ -510,7 +511,7 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
 
                 var loaded = outcome.Load();
                 _registry.Add(metadata.Id, metadata.Name, metadata.Origin, loaded.Rule, loaded.Context);
-                _logger.LogInformation("Rule {RuleId} ('{Name}') reloaded from store.", metadata.Id, metadata.Name);
+                _logger.LogInformation("Rule {RuleId} ('{Name}') reloaded from store.", metadata.Id, ForLog(metadata.Name));
             }
         }
     }
@@ -731,6 +732,11 @@ public sealed class RuleEngine<TContract, TContext> : IDisposable where TContrac
     // collision would silently overwrite another rule. 48 bits (12 hex) reached a 1% birthday chance
     // around a few million rules; the full GUID makes that a non-consideration.
     private static string NewId() => Guid.NewGuid().ToString("N");
+
+    // User-controlled text (ids from callers, rule names, rejection reasons, approver strings) can
+    // carry newlines that forge a second, fake log line; flatten CR/LF before it reaches a template.
+    private static string ForLog(string? value) =>
+        value is null ? string.Empty : value.Replace('\r', ' ').Replace('\n', ' ');
 
     private static string? Coalesce(params string?[] candidates) =>
         candidates.FirstOrDefault(c => !string.IsNullOrWhiteSpace(c));
