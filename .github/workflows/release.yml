@@ -36,7 +36,7 @@ jobs:
       version: ${{ steps.rp.outputs.version }}
     steps:
       # Reads release-please-config.json + .release-please-manifest.json from the repo root.
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         id: rp
 
   publish:
