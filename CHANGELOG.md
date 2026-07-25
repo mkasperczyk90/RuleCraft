@@ -4,6 +4,24 @@ Maintained automatically by [Release Please](https://github.com/googleapis/relea
 [Conventional Commit](https://www.conventionalcommits.org/) messages — new entries are prepended
 above on each release; do not edit by hand.
 
+## [1.1.0](https://github.com/mkasperczyk90/RuleCraft/compare/v1.0.1...v1.1.0) (2026-07-25)
+
+
+### Features
+
+* pluggable rule store, security-analyzer hardening, and CI quali… ([a8ae419](https://github.com/mkasperczyk90/RuleCraft/commit/a8ae4194556cb7fd3c5a64fd9a50c86cf00dcd18))
+* pluggable rule store, security-analyzer hardening, and CI quality gates ([a9e807e](https://github.com/mkasperczyk90/RuleCraft/commit/a9e807e3a06364531f7c8d6d04f9bd72cafbec01))
+
+
+### Bug Fixes
+
+* harden file store paths and log output ([495ae50](https://github.com/mkasperczyk90/RuleCraft/commit/495ae50c331c247b092c4f2e0e078af44fc9cf54))
+* resolve commitlint configuration ([471fa44](https://github.com/mkasperczyk90/RuleCraft/commit/471fa44adff136f5f4870e3f2df22f1877cefe63))
+* **security:** harden file store paths and log output ([5cfb471](https://github.com/mkasperczyk90/RuleCraft/commit/5cfb47133f3b589495a8bd8f13db5ebc85f68dc7))
+* **security:** harden file store paths and log output ([4790af4](https://github.com/mkasperczyk90/RuleCraft/commit/4790af43a14c8da240315fcff49b928701730a52))
+* **security:** harden file store paths and log output ([b2dbc06](https://github.com/mkasperczyk90/RuleCraft/commit/b2dbc067087f8d6af9bcdcecdbe332162dd02ab5))
+* **security:** harden file store paths and log output ([943ba5c](https://github.com/mkasperczyk90/RuleCraft/commit/943ba5c0df202c069c672c5f687f47b78c16ebca))
+
 ## [1.0.1](https://github.com/mkasperczyk90/RuleCraft/compare/v1.0.0...v1.0.1) (2026-07-18)
 
 
