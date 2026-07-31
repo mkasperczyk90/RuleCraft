@@ -16,9 +16,9 @@
       },
       "Microsoft.Extensions.AI.Abstractions": {
         "type": "Direct",
-        "requested": "[10.8.0, )",
-        "resolved": "10.8.0",
-        "contentHash": "1tJZ5sAYrEq1YjNg8GrZSL1tVodsWRfrgybGsZo5DQsWQgLZ+dSR5uFowIS6vb/9zxGBPl7xpYq53QMjNObO9w==",
+        "requested": "[10.8.3, )",
+        "resolved": "10.8.3",
+        "contentHash": "K0B05oApxmviWalNHPMBBcRC7erKiDATz3ENNR/jqTR9JwIwLRefgDhj2jCRwL1aca99pXUe0qyQC73/xIuZig==",
         "dependencies": {
           "System.Text.Json": "10.0.10"
         }
