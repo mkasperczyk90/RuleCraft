@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@v4.37.3
         with:
           languages: csharp
           # Traced build (not buildless): this library's whole point is the code it compiles and
@@ -43,4 +43,4 @@ jobs:
         run: dotnet build RuleCraft.slnx --configuration Release
 
       - name: Analyze
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@v4.37.3
